@@ -1,4 +1,5 @@
-square = fn(x): x^2
+square = fn(x):
+	return x^2
 test = square(10)
 print(test)
 print(x)
@@ -8,7 +9,8 @@ print("Hello world, I'm Mwexim" + "!")
 print(5 < 10 == 10)
 print("---")
 
-mult = fn(x, y): x*y
+mult = fn(x, y):
+	return x*y
 mult_5 = mult(5) # Creates a curried function
 print(mult_5) # I don't want to parse this
 print(mult_5(60))
@@ -17,7 +19,8 @@ print(x)
 print(y)
 print("---")
 
-is_in_between = fn(low, high, value): low <= value <= high
+is_in_between = fn(low, high, value):
+	return low <= value <= high
 is_positive = is_in_between(0, 99999)
 print(is_positive(10), is_positive(-5))
 print(is_in_between(3, 7, 3))
