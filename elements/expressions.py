@@ -1,4 +1,5 @@
-from classes import Function, Context
+from utils.parser_utils import Context
+from utils.primitives import Function, Matrix
 
 
 class Expression:
@@ -20,6 +21,18 @@ class NestedExpression(Expression):
 
     def evaluate(self, ctx: Context):
         return self.expr.evaluate(ctx)
+
+
+class MatrixExpression(Expression):
+    def __init__(self, matrix=None):
+        self.matrix = [[]] if matrix is None else matrix
+
+    def evaluate(self, ctx: Context):
+        # The matrix is full of expressions that need to be evaluated.
+        lengths = [len(row) for row in self.matrix]
+        if len(lengths) > 1 and not lengths.count(lengths[0]) == len(lengths):
+            raise RuntimeError(f"The matrix does not conform to its dimensions")
+        return Matrix([[value.evaluate(ctx) for value in row] for row in self.matrix])
 
 
 class UnaryOperator(Expression):
@@ -133,11 +146,18 @@ class FunctionCall(Expression):
 
 
 class VariableAccess(Expression):
-    def __init__(self, var):
+    def __init__(self, var, post_condition=lambda x: True, error_message=None):
         self.var = var
+        self.post_condition = post_condition
+        self.error_message = error_message
 
     def evaluate(self, ctx: Context):
-        return ctx.variables()[self.var] if self.var in ctx.variables() else None
+        result = ctx.variables()[self.var] if self.var in ctx.variables() else None
+        if not self.post_condition(result):
+            raise RuntimeError("The variable did not comply with the condition"
+                               if self.error_message is None
+                               else self.error_message)
+        return result
 
 
 class VariableChange(Expression):

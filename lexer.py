@@ -101,6 +101,7 @@ def initiate_lexer(to_parse):
         "not": "NOT",
         "fn": "FUN",
         "return": "RETURN",
+        "infix": "INFIX",
         "=": "ASSIGN",
         "+=": "PLUSASSIGN",
         "++": "PLUSONE",
@@ -120,7 +121,10 @@ def initiate_lexer(to_parse):
         ">=": "GTE",
         "(": "LPAREN",
         ")": "RPAREN",
+        "[": "LBRACKET",
+        "]": "RBRACKET",
         ",": "COMMA",
+        ";": "SEMICOLON",
         ":": "COLON"
     }
     tokens = ["BOOLEAN", "STRING", "NUMBER", "NONE", "ID", "NL", "IND", "DED"] + list(keywords.values())

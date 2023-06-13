@@ -1,6 +1,4 @@
-from classes import Context
-
-DEBUG = r"DEBUG:"
+from utils.parser_utils import Context
 
 
 def run_statements(start, ctx, predicate=lambda x: x is not None, debug=False):
@@ -16,12 +14,12 @@ def run_statements(start, ctx, predicate=lambda x: x is not None, debug=False):
     """
     current = start
     if debug:
-        print(DEBUG, "Currently walking over", current)
+        print("DEBUG: Currently walking over", current)
     following = start.walk(ctx)
     while predicate(following):
         current = following
         if debug:
-            print(DEBUG, "Currently walking over", current)
+            print("DEBUG: Currently walking over", current)
         following = current.walk(ctx)
     else:
         return current
@@ -47,7 +45,7 @@ class Statement:
     def run(self, ctx: Context):
         raise NotImplementedError("This method should be implemented if the walk method is not")
 
-    def clear(self):
+    def clear(self, ctx: Context):
         pass
 
     def find_parent(self, cls):
@@ -154,9 +152,9 @@ class ReturnBlock(Block):
         # We know the function definition call handles the returned value and clears the data,
         # so we won't be running any further statements.
         # This prevents multiple functions returning at once, but so be it.
-        return self.children[0] if len(self.children) > 0 and self.returned is None else None
+        return self.children[0] if len(self.children) > 0 and self.returned is None else self.take_next(ctx)
 
-    def clear(self):
+    def clear(self, ctx: Context):
         # Needs to be called by the function definition call!
         self.returned = None
 

@@ -23,5 +23,7 @@ parser = initiate_parser(tokens)
 #     result = unpack(parser.parse(s))
 #     print(result)
 
+DEBUG = True
+
 program = parser.parse(source, lexer=lexer, debug=False)
 run_statements(program, initiate_context(), debug=False)
