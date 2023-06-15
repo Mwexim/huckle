@@ -1,0 +1,46 @@
+# Ensures that matrices are printed nicely into the console
+pretty_print = True
+
+# ',' splits elements in the same row, ';' split rows
+A = [1, 2; 3, 4]
+B = [5, 6; 7, 8]
+C = [9, 10; 11, 12]
+D = [13, 14; 15, 16]
+# You can concatenate matrices the same way you create matrices
+# of single elements.
+# Because of this, matrices with matrices as elements are not
+# possible.
+E = [A, B; C, D]
+print(E)
+
+# Basic arithmetic
+print(A + B)
+print(A - B)
+print(A * B)
+# Matrix multiplication
+print(A * [2; 5])
+
+# And powers of matrices!
+print(A * A * A)
+print(A ^ 3)
+
+# The identity matrix with custom size
+print(eye(2))
+print(A ^ 0)
+
+# The diagonal matrix
+F = diagonal([1, 2, 3, 4, 5])
+print(F ^ 4)
+
+# Scalar multiplication
+print(10 * [A; B] * 10)
+
+# Trace of a matrix
+print(tr(E))
+
+# Submatrix without a certain row and column
+print(submatrix(E, 2, 3))
+
+# The determinant of a matrix.
+print(det(A))
+print(det(E))

@@ -9,6 +9,8 @@ from elements.statements import *
 def initiate_parser(tokens):
     # Still has 19 conflicts...
     precedence = [
+        ("left", "SEMICOLON"),
+        ("left", "COMMA"),
         ("right", "ASSIGN", "PLUSASSIGN", "PLUSONE", "MINUSASSIGN", "MINUSONE"),
         ("right", "IF", "ELSE"),
         ("left", "AND"),
@@ -154,33 +156,19 @@ def initiate_parser(tokens):
     def p_matrix(p):
         """
         expression : LBRACKET matrix RBRACKET
-                   | LBRACKET expression RBRACKET
                    | LBRACKET RBRACKET
-        matrix : expression COMMA expression
-               | matrix COMMA expression
-               | expression SEMICOLON expression
-               | matrix SEMICOLON expression
+        matrix : expression
+               | matrix COMMA matrix
+               | matrix SEMICOLON matrix
         """
         if len(p) == 4 and p[1] == "[" and p[3] == "]":
-            if not isinstance(p[2], list):
-                p[2] = [[p[2]]]
             p[0] = MatrixExpression(p[2])
         elif len(p) == 3 and p[1] == "[" and p[2] == "]":
             p[0] = MatrixExpression()
-        elif p[2] == "," and type(p[1]) != list:
-            p[0] = [[p[1], p[3]]]
-        elif p[2] == ",":
-            matrix = list(p[1])
-            last_row = matrix[-1]
-            last_row.append(p[3])
-            matrix[-1] = last_row
-            p[0] = matrix
-        elif p[2] == ";" and type(p[1]) != list:
-            p[0] = [[p[1]], [p[3]]]
-        elif p[2] == ";":
-            matrix = list(p[1])
-            matrix.append([p[3]])
-            p[0] = matrix
+        elif len(p) == 2:
+            p[0] = UnitMatrixExpression(p[1])
+        else:
+            p[0] = MatrixOperation(p[1], p[2], p[3])
 
     def p_return_statement(p):
         """
@@ -272,10 +260,18 @@ def initiate_context():
     # Python functions, later on these will be built-in
     ctx.variables()["max"] = PythonFunction(max)
     ctx.variables()["min"] = PythonFunction(min)
-    ctx.variables()["print"] = PythonFunction(print)
     ctx.variables()["str"] = PythonFunction(str)
 
     # Built-in functions
+    ctx.variables()["det"] = PythonFunction(det)
+    ctx.variables()["diagonal"] = PythonFunction(diagonal)
+    ctx.variables()["eye"] = PythonFunction(eye)
+    ctx.variables()["print"] = ContextFunction(pretty_print)
+    ctx.variables()["submatrix"] = PythonFunction(submatrix)
+    ctx.variables()["tr"] = PythonFunction(trace)
     ctx.variables()["transpose"] = PythonFunction(transpose)
+
+    # Built-in variables
+    ctx.variables()["pretty_print"] = False
 
     return ctx

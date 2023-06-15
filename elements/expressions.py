@@ -24,15 +24,59 @@ class NestedExpression(Expression):
 
 
 class MatrixExpression(Expression):
-    def __init__(self, matrix=None):
-        self.matrix = [[]] if matrix is None else matrix
+    def __init__(self, last_operation=None):
+        self.last_operation = last_operation
 
     def evaluate(self, ctx: Context):
-        # The matrix is full of expressions that need to be evaluated.
-        lengths = [len(row) for row in self.matrix]
+        if self.last_operation is None:
+            return Matrix()
+        else:
+            result = self.last_operation.evaluate(ctx)
+        # Check if the dimensions are right.
+        lengths = [len(row) for row in result.matrix]
         if len(lengths) > 1 and not lengths.count(lengths[0]) == len(lengths):
             raise RuntimeError(f"The matrix does not conform to its dimensions")
-        return Matrix([[value.evaluate(ctx) for value in row] for row in self.matrix])
+        return result
+
+
+class UnitMatrixExpression(Expression):
+    def __init__(self, expression):
+        self.expression = expression
+
+    def evaluate(self, ctx: Context):
+        result = self.expression.evaluate(ctx)
+        if isinstance(result, Matrix):
+            # We copy the matrix because it cannot be mutated because of its reference!
+            return Matrix(list(result.matrix))
+        else:
+            return Matrix([[self.expression.evaluate(ctx)]])
+
+
+class MatrixOperation(Expression):
+    def __init__(self, left, op, right):
+        self.left = left
+        self.op = op
+        self.right = right
+
+    def evaluate(self, ctx: Context):
+        left = self.left.evaluate(ctx)
+        right = self.right.evaluate(ctx)
+        match self.op:
+            case ",":
+                # Add element to row or add column vector to matrix
+                if isinstance(right, Matrix):
+                    for column in right.columns():
+                        left.add_column(column)
+                else:
+                    left.add_column([right])
+            case ";":
+                # Add element to new row or add row vector to matrix
+                if isinstance(right, Matrix):
+                    for row in right.rows():
+                        left.add_row(row)
+                else:
+                    left.add_row([right])
+        return left
 
 
 class UnaryOperator(Expression):
@@ -50,15 +94,28 @@ class UnaryOperator(Expression):
 
 
 class BinaryOperator(Expression):
-    def __init__(self, left, op, right):
+    def __init__(self, left, op, right, commutative=True):
         self.left = left
         self.op = op
         self.right = right
-        
+        self.commutative = commutative
+
     def evaluate(self, ctx: Context):
         left = self.left.evaluate(ctx)
         right = self.right.evaluate(ctx)
-        match self.op:
+        try:
+            result = self.calculate(left, self.op, right)
+            return result
+        except:
+            # Sometimes, we only want to define operations on one type.
+            # An example is the matrix multiplication with a scalar.
+            if self.commutative:
+                result = self.calculate(right, self.op, left)
+                return result
+
+    @staticmethod
+    def calculate(left, op, right):
+        match op:
             case "+":
                 return left + right
             case "-":
