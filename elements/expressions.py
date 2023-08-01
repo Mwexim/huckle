@@ -1,10 +1,19 @@
+from copy import copy
+from enum import Enum
 from utils.parser_utils import Context
-from utils.primitives import Function, Matrix
+from utils.primitives import Function, Matrix, Slice
+
+
+class ChangeMode(Enum):
+    ADD, ADD_ONE, DELETE, REMOVE, REMOVE_ONE, SET = "+=", "++", "del", "-=", "--", "="
 
 
 class Expression:
     def evaluate(self, ctx: Context):
         raise NotImplementedError("This method should be implemented")
+
+    def change(self, ctx: Context, mode: ChangeMode, value):
+        raise RuntimeError("This expression cannot be changed")
 
 
 class Primitive(Expression):
@@ -16,87 +25,78 @@ class Primitive(Expression):
 
 
 class NestedExpression(Expression):
-    def __init__(self, expr):
-        self.expr = expr
+    def __init__(self, expression: Expression):
+        self.expression = expression
 
     def evaluate(self, ctx: Context):
-        return self.expr.evaluate(ctx)
+        return self.expression.evaluate(ctx)
+
+    def change(self, ctx: Context, mode: ChangeMode, value):
+        self.expression.change(ctx, mode, value)
 
 
 class MatrixExpression(Expression):
-    def __init__(self, last_operation=None):
+    def __init__(self, last_operation: 'MatrixOperation' = None):
         self.last_operation = last_operation
 
     def evaluate(self, ctx: Context):
         if self.last_operation is None:
             return Matrix()
         else:
-            result = self.last_operation.evaluate(ctx)
-        # Check if the dimensions are right.
-        lengths = [len(row) for row in result.matrix]
-        if len(lengths) > 1 and not lengths.count(lengths[0]) == len(lengths):
-            raise RuntimeError(f"The matrix does not conform to its dimensions")
-        return result
+            return self.last_operation.evaluate(ctx)
 
 
 class UnitMatrixExpression(Expression):
-    def __init__(self, expression):
+    def __init__(self, expression: Expression):
         self.expression = expression
 
     def evaluate(self, ctx: Context):
-        result = self.expression.evaluate(ctx)
-        if isinstance(result, Matrix):
-            # We copy the matrix because it cannot be mutated because of its reference!
-            return Matrix(list(result.matrix))
-        else:
-            return Matrix([[self.expression.evaluate(ctx)]])
+        return Matrix(self.expression.evaluate(ctx))
 
 
 class MatrixOperation(Expression):
-    def __init__(self, left, op, right):
+    def __init__(self, left: Expression, operator: str, right: Expression):
         self.left = left
-        self.op = op
+        self.operator = operator
         self.right = right
 
     def evaluate(self, ctx: Context):
-        left = self.left.evaluate(ctx)
+        left: Matrix = self.left.evaluate(ctx)
         right = self.right.evaluate(ctx)
-        match self.op:
+        match self.operator:
             case ",":
                 # Add element to row or add column vector to matrix
                 if isinstance(right, Matrix):
-                    for column in right.columns():
-                        left.add_column(column)
+                    left.concat(right.rows(), dimension=1)
                 else:
-                    left.add_column([right])
+                    left.concat(right, dimension=1)
             case ";":
                 # Add element to new row or add row vector to matrix
                 if isinstance(right, Matrix):
-                    for row in right.rows():
-                        left.add_row(row)
+                    left.concat(right.rows())
                 else:
-                    left.add_row([right])
+                    left.concat(right)
         return left
 
 
 class UnaryOperator(Expression):
-    def __init__(self, op, expr):
-        self.op = op
-        self.expr = expr
+    def __init__(self, operator: str, expression: Expression):
+        self.operator = operator
+        self.expression = expression
 
     def evaluate(self, ctx: Context):
-        expr = self.expr.evaluate(ctx)
-        match self.op:
+        expression = self.expression.evaluate(ctx)
+        match self.operator:
             case "-":
-                return -expr
+                return -expression
             case "not":
-                return not expr
+                return not expression
 
 
 class BinaryOperator(Expression):
-    def __init__(self, left, op, right, commutative=True):
+    def __init__(self, left: Expression, operator: str, right: Expression, commutative=True):
         self.left = left
-        self.op = op
+        self.operator = operator
         self.right = right
         self.commutative = commutative
 
@@ -104,18 +104,18 @@ class BinaryOperator(Expression):
         left = self.left.evaluate(ctx)
         right = self.right.evaluate(ctx)
         try:
-            result = self.calculate(left, self.op, right)
+            result = self.calculate(left, self.operator, right)
             return result
         except:
             # Sometimes, we only want to define operations on one type.
             # An example is the matrix multiplication with a scalar.
             if self.commutative:
-                result = self.calculate(right, self.op, left)
+                result = self.calculate(right, self.operator, left)
                 return result
 
     @staticmethod
-    def calculate(left, op, right):
-        match op:
+    def calculate(left, operator, right):
+        match operator:
             case "+":
                 return left + right
             case "-":
@@ -139,8 +139,8 @@ class BinaryOperator(Expression):
 
 
 class TernaryOperator(Expression):
-    def __init__(self, op, first, second, third):
-        self.op = op
+    def __init__(self, operator: str, first: Expression, second: Expression, third: Expression):
+        self.operator = operator
         self.first = first
         self.second = second
         self.third = third
@@ -149,14 +149,16 @@ class TernaryOperator(Expression):
         first = self.first.evaluate(ctx)
         second = self.second.evaluate(ctx)
         third = self.third.evaluate(ctx)
-        match self.op:
+        match self.operator:
             case "conditional":
                 return first if second else third
+            case "slice":
+                return Slice(first, second, third)
 
 
 class ComparisonOperator(BinaryOperator):
-    def __init__(self, left, op, right):
-        super().__init__(left, op, right)
+    def __init__(self, left: Expression, operator: str, right: Expression):
+        super().__init__(left, operator, right)
 
     def evaluate(self, ctx: Context):
         left = self.left.evaluate(ctx)
@@ -164,13 +166,13 @@ class ComparisonOperator(BinaryOperator):
         right = self.right.evaluate(ctx)
 
         # Chained comparison operators
-        if type(self.left) == ComparisonOperator:
+        if isinstance(self.left, ComparisonOperator):
             left = self.left.right.evaluate(ctx)
             valid = self.left.evaluate(ctx)
 
         if not valid:
             return False
-        match self.op:
+        match self.operator:
             case "==":
                 return left == right
             case "!=":
@@ -186,57 +188,81 @@ class ComparisonOperator(BinaryOperator):
 
 
 class FunctionCall(Expression):
-    def __init__(self, function_expr, args):
-        self.func_expr = function_expr
-        self.args = args
+    def __init__(self, expression: Expression, arguments: list[Expression]):
+        self.expression = expression
+        self.arguments = arguments
 
     def evaluate(self, ctx: Context):
-        func = self.func_expr.evaluate(ctx)
-        if len(self.args) < func.arguments_needed():
+        func = self.expression.evaluate(ctx)
+        if len(self.arguments) < func.arguments_needed():
             # If not enough arguments are given, return the same function
             # but with the curried arguments.
             curried = list(func.curried)
-            curried.extend([expr.evaluate(ctx) for expr in self.args])
+            curried.extend([expr.evaluate(ctx) for expr in self.arguments])
             return Function(func.parameters, func.block, curried)
         else:
-            return func.execute(ctx, [expr.evaluate(ctx) for expr in self.args])
+            return func.execute(ctx, [expr.evaluate(ctx) for expr in self.arguments])
+
+    def change(self, ctx: Context, mode: ChangeMode, value):
+        # TODO Add preconditions
+        # Currently, only Matrices can have their values changed by calling them as a function
+        changing = self.expression.evaluate(ctx)
+        match mode:
+            case ChangeMode.ADD:
+                changing[[expr.evaluate(ctx) for expr in self.arguments]] += value
+            case ChangeMode.ADD_ONE:
+                changing[[expr.evaluate(ctx) for expr in self.arguments]] += 1
+            case ChangeMode.DELETE:
+                del changing[[expr.evaluate(ctx) for expr in self.arguments]]
+            case ChangeMode.REMOVE:
+                changing[[expr.evaluate(ctx) for expr in self.arguments]] -= value
+            case ChangeMode.REMOVE_ONE:
+                changing[[expr.evaluate(ctx) for expr in self.arguments]] -= 1
+            case ChangeMode.SET:
+                changing[[expr.evaluate(ctx) for expr in self.arguments]] = value
+        return changing
 
 
 class VariableAccess(Expression):
-    def __init__(self, var, post_condition=lambda x: True, error_message=None):
-        self.var = var
+    def __init__(self, identifier: str, post_condition=lambda x: True, error_message=None):
+        self.identifier = identifier
         self.post_condition = post_condition
         self.error_message = error_message
 
     def evaluate(self, ctx: Context):
-        result = ctx.variables()[self.var] if self.var in ctx.variables() else None
+        result = ctx.variables()[self.identifier] if self.identifier in ctx.variables() else None
         if not self.post_condition(result):
             raise RuntimeError("The variable did not comply with the condition"
                                if self.error_message is None
                                else self.error_message)
         return result
 
+    def change(self, ctx: Context, mode: ChangeMode, value):
+        match mode:
+            case ChangeMode.ADD:
+                ctx.variables()[self.identifier] += value
+            case ChangeMode.ADD_ONE:
+                ctx.variables()[self.identifier] += 1
+            case ChangeMode.DELETE:
+                return ctx.variables().pop(self.identifier) if self.identifier in ctx.variables() else None
+            case ChangeMode.REMOVE:
+                ctx.variables()[self.identifier] -= value
+            case ChangeMode.REMOVE_ONE:
+                ctx.variables()[self.identifier] -= 1
+            case ChangeMode.SET:
+                ctx.variables()[self.identifier] = value
+        return ctx.variables()[self.identifier]
+
 
 class VariableChange(Expression):
-    def __init__(self, var, op, expr=None):
-        self.var = var
-        self.op = op
-        self.expr = expr
+    def __init__(self, changing: Expression, operator: str, change_to: Expression = None):
+        self.changing = changing
+        self.operator = operator
+        self.change_to = change_to
 
     def evaluate(self, ctx: Context):
-        if self.var not in ctx.variables():
-            ctx.variables()[self.var] = 0
-        match self.op:
-            case "del":
-                return ctx.variables().pop(self.var) if self.var in ctx.variables() else None
-            case "=":
-                ctx.variables()[self.var] = self.expr.evaluate(ctx)
-            case "+=":
-                ctx.variables()[self.var] += self.expr.evaluate(ctx)
-            case "-=":
-                ctx.variables()[self.var] -= self.expr.evaluate(ctx)
-            case "++":
-                ctx.variables()[self.var] += 1
-            case "--":
-                ctx.variables()[self.var] -= 1
-        return ctx.variables()[self.var]
+        # if self.changing not in ctx.variables():
+        #     ctx.variables()[self.changing] = 0
+        return self.changing.change(ctx,
+                                    ChangeMode(self.operator),
+                                    copy(self.change_to.evaluate(ctx)) if self.change_to is not None else None)

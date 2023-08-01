@@ -40,7 +40,7 @@ class IndentLexer:
         # after it returns None.
         self.eof_reached = False
 
-    def input(self, source):
+    def input(self, source: str):
         self.lexer.input(source)
 
     def token(self):

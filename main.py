@@ -6,6 +6,7 @@ from parser import initiate_parser, initiate_context
 source = open("resources/test.hk", "r").read() + "\n"
 
 # Build the parser
+
 lexer, tokens = initiate_lexer(source)
 parser = initiate_parser(tokens)
 
@@ -22,8 +23,6 @@ parser = initiate_parser(tokens)
 #     s = input('> ')
 #     result = unpack(parser.parse(s))
 #     print(result)
-
-DEBUG = True
 
 program = parser.parse(source, lexer=lexer, debug=False)
 run_statements(program, initiate_context(), debug=False)

@@ -97,6 +97,7 @@ class ConditionalStatement(Statement):
                 return self.elif_blocks[i]
         if self.else_block is not None:
             return self.else_block
+        return self.take_next(ctx)
 
 
 class PassStatement(Statement):
@@ -124,7 +125,8 @@ class ContinueStatement(Statement):
 
     def walk(self, ctx: Context):
         block = self.find_parent(WhileBlock)
-        return block
+        # We need to manually take the next item, since the while-condition is checked in there.
+        return block.take_next(ctx)
 
 
 class Block(Statement):

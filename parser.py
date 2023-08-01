@@ -11,6 +11,7 @@ def initiate_parser(tokens):
     precedence = [
         ("left", "SEMICOLON"),
         ("left", "COMMA"),
+        # ("left", "COLON"),
         ("right", "ASSIGN", "PLUSASSIGN", "PLUSONE", "MINUSASSIGN", "MINUSONE"),
         ("right", "IF", "ELSE"),
         ("left", "AND"),
@@ -26,8 +27,8 @@ def initiate_parser(tokens):
         ("nonassoc", "LPAREN")
     ]
 
-    # TODO Work with statements and expression to distinguish the two better
     def p_program(p):
+        # TODO Make it so that a file can start with a newline/comment
         """
         block : statement
               | block NL
@@ -74,7 +75,6 @@ def initiate_parser(tokens):
         """
         conditional : IF expression COLON IND block DED
                     | conditional ELIF expression COLON IND block DED
-                    | conditional NL
         statement : conditional
                   | conditional ELSE COLON IND block DED
         """
@@ -96,8 +96,8 @@ def initiate_parser(tokens):
         expression : expression LPAREN parameters RPAREN
                    | expression LPAREN RPAREN
                    | expression ID expression
-        parameters : expression
-                   | parameters COMMA expression
+        parameters : sliced_expression
+                   | parameters COMMA sliced_expression
         """
         if len(p) >= 4 and p[2] == "(":
             args = []
@@ -157,7 +157,7 @@ def initiate_parser(tokens):
         """
         expression : LBRACKET matrix RBRACKET
                    | LBRACKET RBRACKET
-        matrix : expression
+        matrix : sliced_expression
                | matrix COMMA matrix
                | matrix SEMICOLON matrix
         """
@@ -178,14 +178,19 @@ def initiate_parser(tokens):
 
     def p_change_variable(p):
         """
-        expression : ID ASSIGN expression
-                   | ID PLUSASSIGN expression
-                   | ID PLUSONE
-                   | ID MINUSASSIGN expression
-                   | ID MINUSONE
-                   | DEL ID
+        expression : expression ASSIGN expression
+                   | expression PLUSASSIGN expression
+                   | expression PLUSONE
+                   | expression MINUSASSIGN expression
+                   | expression MINUSONE
+                   | DEL expression
         """
-        p[0] = VariableChange(p[2], p[1]) if p[1] == "del" else VariableChange(p[1], p[2], p[3])
+        if p[1] == "del":
+            p[0] = VariableChange(p[2], p[1])
+        elif len(p) == 3:
+            p[0] = VariableChange(p[1], p[2])
+        else:
+            p[0] = VariableChange(p[1], p[2], p[3])
 
     def p_variable_access(p):
         """
@@ -213,7 +218,7 @@ def initiate_parser(tokens):
                    | expression IF expression
                    | expression IN expression
         """
-        p[0] = BinaryOperator(p[1], p[2], p[3])
+        p[0] = BinaryOperator(p[1], p[2], p[3], p[2] not in ("%", "if", "in"))
 
     def p_comparison(p):
         """
@@ -231,6 +236,51 @@ def initiate_parser(tokens):
         expression : expression IF expression ELSE expression
         """
         p[0] = TernaryOperator("conditional", p[1], p[3], p[5])
+
+    def p_expression_hierarchy(p):
+        """
+        sliced_expression : expression
+                          | slice
+        """
+        p[0] = NestedExpression(p[1])
+
+    def p_slice_operator(p):
+        # TODO Create alternative syntax with colons, without conflicts
+        # """
+        # slice : expression UPTO expression STEP expression
+        #       | expression DOWNTO expression STEP expression
+        #       | expression UPTO expression
+        #       | expression UPWARDS STEP expression
+        #       | expression UPWARDS
+        #       | UPWARDS expression
+        #       | expression DOWNTO expression
+        #       | expression DOWNWARDS
+        #       | DOWNWARDS expression
+        # """
+        """
+        slice : expression COLON expression COLON expression
+              | COLON expression COLON expression
+              | expression COLON COLON expression
+              | expression COLON expression
+              | COLON COLON expression
+              | COLON expression
+              | expression COLON
+              | COLON
+        """
+        start = Primitive(None)
+        end = Primitive(None)
+        step = Primitive(None)
+        separators = 0
+        for match in p[1:]:
+            if match == ":":
+                separators += 1
+            elif separators == 0:
+                start = match
+            elif separators == 1:
+                end = match
+            elif separators == 2:
+                step = match
+        p[0] = TernaryOperator("slice", start, end, step)
 
     def p_primitives(p):
         """
@@ -258,16 +308,20 @@ def initiate_context():
     ctx = Context()
 
     # Python functions, later on these will be built-in
-    ctx.variables()["max"] = PythonFunction(max)
-    ctx.variables()["min"] = PythonFunction(min)
+    ctx.variables()["len"] = PythonFunction(len)
+    ctx.variables()["slice"] = PythonFunction(slice)
     ctx.variables()["str"] = PythonFunction(str)
 
     # Built-in functions
-    ctx.variables()["det"] = PythonFunction(det)
+    ctx.variables()["cross"] = PythonFunction(cross, infix=True)
+    ctx.variables()["det"] = PythonFunction(determinant)
     ctx.variables()["diagonal"] = PythonFunction(diagonal)
+    ctx.variables()["dot"] = PythonFunction(dot, infix=True)
     ctx.variables()["eye"] = PythonFunction(eye)
+    ctx.variables()["inv"] = PythonFunction(inverse)
+    ctx.variables()["max"] = PythonFunction(maximum)
+    ctx.variables()["min"] = PythonFunction(minimum)
     ctx.variables()["print"] = ContextFunction(pretty_print)
-    ctx.variables()["submatrix"] = PythonFunction(submatrix)
     ctx.variables()["tr"] = PythonFunction(trace)
     ctx.variables()["transpose"] = PythonFunction(transpose)
 

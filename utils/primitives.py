@@ -1,98 +1,304 @@
+import numbers
+from typing import Literal
+
+import numpy as np
 from utils.parser_utils import Context
 
 
 class Matrix:
-    def __init__(self, matrix=None):
-        self.matrix = [[]] if matrix is None else matrix
+    array: np.ndarray
 
-    def execute(self, ctx: Context, args):
-        if len(args) == 1:
-            # If there's only one row, we want to return the column
-            if len(self.matrix) == 1:
-                return self.matrix[0][args[0] + 1]
+    def __init__(self, matrix=None):
+        """
+        Creates a matrix from a given object, depending on the type it creates:
+
+        - an empty matrix if ``None``,
+        - a non-referencing copy if a Matrix,
+        - a row matrix for Slices,
+        - a row matrix for lists with single elements,
+        - a matrix for lists of lists with single elements,
+        - a non-referencing copy for Numpy arrays, or
+        - a matrix with one element for single elements.
+        :param matrix: the object
+        """
+        if matrix is None:
+            self.array = np.matrix([[]])
+        elif isinstance(matrix, Matrix):
+            self.array = matrix.array.copy()
+        elif isinstance(matrix, Slice):
+            # This turns a slice into a list
+            # TODO Add preconditions (check if start AND stop exist)
+            self.array = np.array([list(range(matrix.stop)[matrix.slice()])])
+        elif isinstance(matrix, list):
+            if len(matrix) == 0 or not isinstance(matrix[0], list):
+                # Matrix is a list, but not 2-dimensional
+                self.array = np.array([matrix])
             else:
-                return self.matrix[args[0] + 1]
+                self.array = np.array(matrix)
+        elif isinstance(matrix, np.ndarray):
+            if len(matrix.shape) != 2:
+                # Matrix is Numpy array, but not 2-dimensional
+                self.array = np.array([matrix.tolist()])
+            else:
+                # Matrix is already a Numpy array
+                self.array = matrix.copy()
+        else:
+            # Matrix is a single value
+            self.array = np.array([[matrix]])
+
+    def execute(self, _, args):
+        args = self._transform_keys(args)
+
+        # Fetching the values
+        if len(args) == 1:
+            if self.array.shape[0] == 1:
+                # If there's only one row, return the column element
+                result = self.array[0, args[0]]
+            elif self.array.shape[1] == 1:
+                # Otherwise, if there's only one column, return the row element
+                result = self.array[args[0], 0]
+            else:
+                # Otherwise, return the full row
+                result = self.array[args[0]]
         elif len(args) == 2:
-            return self.matrix[args[0] + 1][args[1] + 1]
+            # We need to manually make a column vector out of this, since Numpy just returns a list
+            result = self.array[args[0], args[1]]
         else:
             raise RuntimeError(f"Too many arguments: expected 2 or lower arguments, but found {len(args)}")
 
+        # Making sure the result is a valid type
+        if Matrix(result).shape() != (1, 1):
+            return Matrix(result)
+        else:
+            # The result is a singular value and can be unpacked
+            return result
+
     def arguments_needed(self):
+        # TODO Find another solution for this, possibly implementing a '[]' operator
         return 0
 
+    def shape(self):
+        """
+        Returns a tuple containing the size of respectively the rows and columns.
+        :return: the shape of this matrix
+        """
+        return self.array.shape
+
     def rows(self):
-        return self.matrix
+        """
+        Returns a list with all the rows of this matrix
+        :return: a list of the rows
+        """
+        return self.array.tolist()
 
     def columns(self):
-        return [[row[i] for row in self.matrix] for i in range(len(self.matrix[0]))]
-
-    def add_row(self, row):
-        if len(row) != len(self.matrix[0]):
-            raise RuntimeError(f"You cannot add a row of length {len(row)} to a matrix with {len(self.matrix[0])} columns")
-        self.matrix.append(row)
-
-    def add_column(self, column):
         """
-        Adds a column to this matrix. Note that the column itself is just a list, not a matrix.
-        :param column: the elements of this column
+        Returns a list with all the columns of this matrix.
+        :return: a list of the columns
         """
-        if len(column) != len(self.matrix):
-            raise RuntimeError(f"You cannot add a column of length {len(column)} to a matrix with {len(self.matrix)} rows")
+        return self.array.transpose().tolist()
 
-        new = []
-        for i, row in enumerate(self.matrix):
-            new.append(row + [column[i]])
-        self.matrix = new
+    def vector(self) -> list:
+        """
+        Returns a list with all the elements of this matrix
+        :return: a list with all the elements
+        """
+        return [item for sublist in self.array.tolist() for item in sublist]
 
-    def dimensions_match(self, other: 'Matrix'):
-        return len(self.matrix) == len(other.matrix) and len(self.matrix[0]) == len(other.matrix[0])
+    def concat(self, other, dimension: Literal[0, 1] = 0):
+        """
+        Adds the vectors to this matrix, either as rows (``dimension`` is 0) or as columns (``dimension``
+        is 1). The vectors must all be of the same size and must match the size of the array.
+        If the vector is a single value and not a sequence, it will be converted to one.
+        :param other: the vectors, or a single value
+        :param dimension: whether to add the vectors as rows (0, default) or as columns (1)
+        """
+        # TODO Add preconditions
+        if not isinstance(other, list):
+            other = [[other]]
 
-    def is_square_matrix(self):
-        return len(self.matrix) == len(self.matrix[0])
+        # If the matrix is empty, we can just create a new one.
+        if len(self) == 0:
+            self.array = Matrix(other).array
+            return
 
-    def __add__(self, other: 'Matrix'):
-        if not self.dimensions_match(other):
+        self.array = (np.vstack if dimension == 0 else np.hstack)([self.array, np.matrix(other)])
+
+    def __delitem__(self, key):
+        # TODO Add preconditions
+        key = self._transform_keys(key)
+
+        # Deleting the values
+        if len(key) == 1:
+            if self.array.shape[0] == 1:
+                # If there's only one row, delete the column element
+                self.array = np.delete(self.array, key[0], 1)
+            elif self.array.shape[1] == 1:
+                # Otherwise, if there's only one column, delete the row element
+                self.array = np.delete(self.array, key[0], 0)
+            else:
+                # Otherwise, delete the full row
+                self.array = np.delete(self.array, key[0], 0)
+        elif len(key) == 2:
+            # We need to delete the rows and columns manually, since Numpy works differently
+            self.array = np.delete(np.delete(self.array, key[0], 0), key[1], 1)
+        else:
+            raise RuntimeError(f"Too many arguments: expected 2 or lower arguments, but found {len(key)}")
+
+    def __getitem__(self, item):
+        return self.execute(None, list(item))
+
+    def __setitem__(self, key, value):
+        # TODO Add preconditions
+        # TODO When manipulating arrays, use only arrays and not lists, singular values and arrays inconsistently
+        key = self._transform_keys(key)
+
+        # Setting the values
+        if len(key) == 1:
+            if self.array.shape[0] == 1:
+                # If there's only one row, change the element in that row
+                self.array[0, key[0]] = value
+            elif self.array.shape[1] == 1:
+                # Otherwise, if there's only one column, change the element in that column
+                self.array[key[0], 0] = value
+            else:
+                # Otherwise, change the full row
+                # The value is a matrix now
+                # TODO Add preconditions for this particular case
+                self.array[key[0]] = value.array
+        elif len(key) == 2:
+            # TODO Make a function for transforming
+            if isinstance(value, Matrix):
+                # TODO Add preconditions to only make it possible if the value is the same shape as the queried key
+                value = value.array
+            elif isinstance(value, Slice):
+                # Makes a list out of this slice
+                value = list(range(value.stop)[value.slice()])
+            self.array[key[0], key[1]] = value
+        else:
+            raise RuntimeError(f"Too many arguments: expected 2 or lower arguments, but found {len(key)}")
+
+    def __add__(self, other):
+        # Scalar addition
+        if isinstance(other, numbers.Number):
+            return Matrix(self.array + other)
+
+        # Matrix addition
+        if self.array.shape != other.array.shape:
             raise RuntimeError(f"Cannot add matrices with different dimensions")
-        return Matrix([[self.matrix[i][j] + other.matrix[i][j] for j in range(len(self.matrix[i]))] for i in range(len(self.matrix))])
+        return Matrix(self.array + other.array)
 
-    def __sub__(self, other: 'Matrix'):
-        if not self.dimensions_match(other):
+    def __sub__(self, other):
+        # Scalar subtraction
+        if isinstance(other, numbers.Number):
+            return Matrix(self.array - other)
+
+        # Matrix subtraction
+        if self.array.shape != other.array.shape:
             raise RuntimeError(f"Cannot subtract matrices with different dimensions")
-        return Matrix([[self.matrix[i][j] - other.matrix[i][j] for j in range(len(self.matrix[i]))] for i in range(len(self.matrix))])
+        return Matrix(self.array - other.array)
 
     def __mul__(self, other):
         # Scalar multiplication
-        if isinstance(other, float) or isinstance(other, int):
-            return Matrix([[self.matrix[i][j] * other for j in range(len(self.matrix[i]))] for i in range(len(self.matrix))])
+        if isinstance(other, numbers.Number):
+            return Matrix(self.array * other)
 
         # Matrix multiplication
-        if len(self.columns()) != len(other.rows()):
-            raise RuntimeError("Cannot multiply matrices with non-matching dimensions")
-        result = [[None for j in range(len(other.matrix[0]))] for i in range(len(self.matrix))]
-        for i in range(len(self.matrix)):
-            for j in range(len(other.matrix[0])):
-                result[i][j] = sum([self.rows()[i][k] * other.columns()[j][k] for k in range(len(other.matrix))])
-        return Matrix(result)
+        # TODO Add preconditions
+        return Matrix(self.array @ other.array)
 
     def __pow__(self, power, modulo=None):
         # TODO Implement checks for optimized powers, for example when multiplying with the identity matrix
-        # TODO Implement negative powers and any number powers (?)
-        if not self.is_square_matrix():
-            raise RuntimeError("Only square matrices have powers")
-        elif power < 0 or int(power) != power:
-            raise RuntimeError("The exponent of a matrix should be a natural number")
-        elif power == 0:
-            from utils.builtins import eye
-            return eye(len(self.matrix))
+        # TODO Add preconditions
+        if int(power) != power:
+            raise RuntimeError("The exponent of a matrix should be a whole number")
 
-        result = self
+        if power == 1:
+            return Matrix(self)
+        elif power > 0:
+            original = self.array.copy()
+        elif power == 0:
+            return Matrix(np.identity(self.array.shape[0], dtype=int))
+        else:
+            original = np.linalg.inv(self.array)
+            power *= -1
+
+        result = original.copy()
         while power > 1:
-            result *= self
+            result @= original
             power -= 1
-        return result
+        return Matrix(result.round(6))
+
+    def __contains__(self, item):
+        # TODO Add preconditions
+        # TODO Add support for row/column vectors
+        return item in self.vector()
+
+    def __len__(self):
+        # TODO Add support for dimensions
+        return len(self.vector())
+
+    def __copy__(self):
+        return Matrix(self)
 
     def __str__(self):
-        return "[" + "; ".join([", ".join([str(element) for element in row]) for row in self.matrix]) + "]"
+        return "[" + "; ".join([", ".join([str(element) for element in row]) for row in self.array.tolist()]) + "]"
+
+    def __repr__(self):
+        return self.__str__()
+
+    @staticmethod
+    def _transform_keys(keys) -> list:
+        """
+        When querying a Matrix, this function can transform the key argument into
+        Python primitives. It also takes both finite and infinite Slices into account.
+        :param keys: the keys
+        :return: a list of Python primitive, supported keys
+        """
+        result = []
+        for key in keys:
+            if isinstance(key, Slice):
+                result.append(key.slice())
+            elif isinstance(key, Matrix):
+                # TODO Add preconditions (only vectors allowed)
+                result.append(key.vector())
+            else:
+                result.append(key)
+        return result
+
+
+class Slice:
+    def __init__(self, start, stop, step=1):
+        self.start = start
+        self.stop = stop
+        self.step = step
+
+    def slice(self):
+        return slice(self.start, self.stop, self.step)
+
+    def indices(self, length):
+        return self.slice().indices(length)
+
+    def __add__(self, other):
+        return Slice(self.start + other if self.start is not None else None,
+                     self.stop + other if self.stop is not None else None,
+                     self.step)
+
+    def __sub__(self, other):
+        return Slice(self.start - other if self.start is not None else None,
+                     self.stop - other if self.stop is not None else None,
+                     self.step)
+
+    def __str__(self):
+        result = ""
+        if self.start is not None:
+            result += str(self.start) + " "
+        result += ":"
+        if self.stop is not None:
+            result += " " + str(self.stop)
+        if self.step is not None and self.step != 1:
+            result += " : " + str(self.step)
+        return result
 
     def __repr__(self):
         return self.__str__()
@@ -131,8 +337,8 @@ class Function:
 
 
 class PythonFunction(Function):
-    def __init__(self, python_function):
-        super().__init__([], None)
+    def __init__(self, python_function, infix=False):
+        super().__init__([], None, infix=infix)
         self.python_function = python_function
 
     def execute(self, ctx, args):
@@ -155,6 +361,7 @@ class ContextFunction(Function):
         return self.context_function(ctx, args)
 
     def arguments_needed(self):
+        # TODO Find another system for this
         # We don't want to enable currying for built-in Python functions!
         return 0
 
