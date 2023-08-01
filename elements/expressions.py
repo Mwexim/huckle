@@ -158,7 +158,7 @@ class TernaryOperator(Expression):
 
 class ComparisonOperator(BinaryOperator):
     def __init__(self, left: Expression, operator: str, right: Expression):
-        super().__init__(left, operator, right)
+        super().__init__(left, operator, right, commutative=operator in ("==", "!="))
 
     def evaluate(self, ctx: Context):
         left = self.left.evaluate(ctx)

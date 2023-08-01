@@ -129,11 +129,6 @@ def initiate_lexer(to_parse):
     }
     tokens = ["BOOLEAN", "STRING", "NUMBER", "NONE", "ID", "NL", "IND", "DED"] + list(keywords.values())
 
-    # Tokenizers for the operators
-    for key, value in keywords.items():
-        if not key.isalpha():
-            locals()["t_" + value] = "".join(["\\" + c for c in key])
-
     # Tokenizers for the other tokens
     def t_NONE(t):
         r"None"
@@ -178,6 +173,11 @@ def initiate_lexer(to_parse):
     def t_error(t):
         print("Illegal character '%s'" % t.value[0])
         t.lexer.skip(1)
+
+    # Tokenizers for the operators
+    for key, value in keywords.items():
+        if not key.isalpha():
+            locals()["t_" + value] = "".join(["\\" + c for c in key])
 
     # Build the lexer
     lexer = IndentLexer(lex.lex())

@@ -7,12 +7,16 @@ from elements.statements import *
 
 
 def initiate_parser(tokens):
-    # Still has 19 conflicts...
+    # Still has conflicts...
     precedence = [
         ("left", "SEMICOLON"),
         ("left", "COMMA"),
         # ("left", "COLON"),
         ("right", "ASSIGN", "PLUSASSIGN", "PLUSONE", "MINUSASSIGN", "MINUSONE"),
+        # Here to handle infix operator priority, but not an ideal solution?
+        # The line below with the BININFIX precedence override does not seem to work...
+        ("left", "ID"),
+        # ("left", "BININFIX"),
         ("right", "IF", "ELSE"),
         ("left", "AND"),
         ("left", "OR"),
@@ -245,18 +249,6 @@ def initiate_parser(tokens):
         p[0] = NestedExpression(p[1])
 
     def p_slice_operator(p):
-        # TODO Create alternative syntax with colons, without conflicts
-        # """
-        # slice : expression UPTO expression STEP expression
-        #       | expression DOWNTO expression STEP expression
-        #       | expression UPTO expression
-        #       | expression UPWARDS STEP expression
-        #       | expression UPWARDS
-        #       | UPWARDS expression
-        #       | expression DOWNTO expression
-        #       | expression DOWNWARDS
-        #       | DOWNWARDS expression
-        # """
         """
         slice : expression COLON expression COLON expression
               | COLON expression COLON expression
@@ -307,25 +299,29 @@ def initiate_parser(tokens):
 def initiate_context():
     ctx = Context()
 
-    # Python functions, later on these will be built-in
-    ctx.variables()["len"] = PythonFunction(len)
-    ctx.variables()["slice"] = PythonFunction(slice)
-    ctx.variables()["str"] = PythonFunction(str)
+    ctx.variable_states[-1] = {
+        # Python functions, later on these will be built-in
+        "len": PythonFunction(len),
+        "slice": PythonFunction(slice),
+        "str": PythonFunction(str),
 
-    # Built-in functions
-    ctx.variables()["cross"] = PythonFunction(cross, infix=True)
-    ctx.variables()["det"] = PythonFunction(determinant)
-    ctx.variables()["diagonal"] = PythonFunction(diagonal)
-    ctx.variables()["dot"] = PythonFunction(dot, infix=True)
-    ctx.variables()["eye"] = PythonFunction(eye)
-    ctx.variables()["inv"] = PythonFunction(inverse)
-    ctx.variables()["max"] = PythonFunction(maximum)
-    ctx.variables()["min"] = PythonFunction(minimum)
-    ctx.variables()["print"] = ContextFunction(pretty_print)
-    ctx.variables()["tr"] = PythonFunction(trace)
-    ctx.variables()["transpose"] = PythonFunction(transpose)
+        # Built-in functions
+        "cross": PythonFunction(cross, infix=True),
+        "det": PythonFunction(determinant),
+        "diagonal": PythonFunction(diagonal),
+        "dot": PythonFunction(dot, infix=True),
+        "eye": PythonFunction(eye),
+        "inv": PythonFunction(inverse),
+        "max": PythonFunction(maximum),
+        "min": PythonFunction(minimum),
+        "norm": PythonFunction(norm),
+        "print": ContextFunction(pretty_print),
+        "rank": PythonFunction(rank),
+        "tr": PythonFunction(trace),
+        "transpose": PythonFunction(transpose),
 
-    # Built-in variables
-    ctx.variables()["pretty_print"] = False
+        # Built-in variables
+        "pretty_print": True
+    }
 
     return ctx

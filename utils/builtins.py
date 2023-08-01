@@ -1,5 +1,3 @@
-import numpy as np
-
 from utils.primitives import *
 
 
@@ -76,6 +74,7 @@ def diagonal(vector: Matrix):
     :return: a diagonal matrix
     """
     # TODO Add preconditions
+    # TODO Stop using vector() and refer to array, see other functions in this file as well!
     return Matrix(np.diag(vector.vector()))
 
 
@@ -92,3 +91,13 @@ def dot(left: Matrix, right: Matrix):
 def cross(left: Matrix, right: Matrix):
     # TODO Add preconditions
     return np.cross(left.vector(), right.vector())
+
+
+def norm(matrix: Matrix):
+    # TODO Add preconditions
+    return np.linalg.norm(matrix.vector())
+
+
+def rank(matrix: Matrix):
+    # TODO Add preconditions
+    return np.linalg.matrix_rank(matrix.array)
