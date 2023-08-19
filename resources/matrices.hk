@@ -1,6 +1,3 @@
-pretty_print = True
-horizontal = "---------------------"
-
 # ',' splits elements in the same row, ';' split rows
 A = [1, 2; 3, 4]
 B = [5, 6; 7, 8]
@@ -13,9 +10,9 @@ E = [A, B; C, D]
 print(E)
 
 # You can fetch elements by using parentheses
-print(A(1))
-print(B(0, 1))
-print(E(1:, 1::2))
+print(A[1])
+print(B[0, 1])
+print(E[1:, 1::2])
 
 # Basic arithmetic
 print(A + B)
@@ -59,27 +56,27 @@ print([2, 4, 8] cross [1, 2, 3])
 
 # Changing specific elements, rows and columns.
 H = E
-H(1, 1) = 10
+H[1, 1] = 10
 print(H)
 
-H(:, 0) = H(:, 0) + 3
+H[:, 0] = H[:, 0] + 3
 print(H)
 
 b = [1; 2; 3; 4]
-H(:, 1:) = [b, b + 1, b + 100] * 10
+H[:, 1:] = [b, b + 1, b + 100] * 10
 print(H)
 
 I = [1:5; 5:9; 9:13; 13:17]
 print(I)
 
-I(1:3) -= 3
+I[1:3] -= 3
 print(I)
 
-del I(::2, 2:)
+del I[::2, 2:]
 print(I)
 
 # Switching rows and columns
 J = E
 print(J)
-J([1, 2]) = J([2, 1])
+J[[1, 2]] = J[[2, 1]]
 print(J)

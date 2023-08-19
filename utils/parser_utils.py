@@ -1,5 +1,8 @@
+from typing import Any
+
+
 class Context:
-    variable_states = []
+    variable_states: list[dict[str, Any]] = []
 
     def __init__(self):
         self.variable_states.append(dict())

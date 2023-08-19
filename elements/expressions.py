@@ -199,13 +199,22 @@ class FunctionCall(Expression):
             # but with the curried arguments.
             curried = list(func.curried)
             curried.extend([expr.evaluate(ctx) for expr in self.arguments])
-            return Function(func.parameters, func.block, curried)
+            return Function(func.parameters, func.block, curried=curried, expandable=func.expandable)
         else:
             return func.execute(ctx, [expr.evaluate(ctx) for expr in self.arguments])
 
+
+class ListAccess(Expression):
+    def __init__(self, expression: Expression, arguments: list[Expression]):
+        self.expression = expression
+        self.arguments = arguments
+
+    def evaluate(self, ctx: Context):
+        return self.expression.evaluate(ctx)[[expr.evaluate(ctx) for expr in self.arguments]]
+
     def change(self, ctx: Context, mode: ChangeMode, value):
         # TODO Add preconditions
-        # Currently, only Matrices can have their values changed by calling them as a function
+        # Currently, only Matrices can have their values changed by using their list access
         changing = self.expression.evaluate(ctx)
         match mode:
             case ChangeMode.ADD:

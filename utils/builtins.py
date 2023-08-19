@@ -101,3 +101,8 @@ def norm(matrix: Matrix):
 def rank(matrix: Matrix):
     # TODO Add preconditions
     return np.linalg.matrix_rank(matrix.array)
+
+
+def reshape(matrix: Matrix, shape: Matrix):
+    # TODO Add preconditions
+    return Matrix(matrix.array.reshape(shape.vector()))

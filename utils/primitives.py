@@ -1,5 +1,6 @@
 import numbers
-from typing import Literal
+from inspect import signature
+from typing import Literal, Sized, Any
 
 import numpy as np
 from utils.parser_utils import Context
@@ -46,35 +47,12 @@ class Matrix:
             # Matrix is a single value
             self.array = np.array([[matrix]])
 
-    def execute(self, _, args):
-        args = self._transform_keys(args)
-
-        # Fetching the values
-        if len(args) == 1:
-            if self.array.shape[0] == 1:
-                # If there's only one row, return the column element
-                result = self.array[0, args[0]]
-            elif self.array.shape[1] == 1:
-                # Otherwise, if there's only one column, return the row element
-                result = self.array[args[0], 0]
-            else:
-                # Otherwise, return the full row
-                result = self.array[args[0]]
-        elif len(args) == 2:
-            # We need to manually make a column vector out of this, since Numpy just returns a list
-            result = self.array[args[0], args[1]]
-        else:
-            raise RuntimeError(f"Too many arguments: expected 2 or lower arguments, but found {len(args)}")
-
-        # Making sure the result is a valid type
-        if Matrix(result).shape() != (1, 1):
-            return Matrix(result)
-        else:
-            # The result is a singular value and can be unpacked
-            return result
+    def execute(self, ctx, args):
+        # TODO Add preconditions
+        # TODO Make this prettier
+        return Matrix(np.array(list(map(lambda x: x.execute(ctx, args), self.vector()))).reshape(self.shape()))
 
     def arguments_needed(self):
-        # TODO Find another solution for this, possibly implementing a '[]' operator
         return 0
 
     def shape(self):
@@ -146,7 +124,31 @@ class Matrix:
             raise RuntimeError(f"Too many arguments: expected 2 or lower arguments, but found {len(key)}")
 
     def __getitem__(self, item):
-        return self.execute(None, list(item))
+        args = self._transform_keys(list(item))
+
+        # Fetching the values
+        if len(args) == 1:
+            if self.array.shape[0] == 1:
+                # If there's only one row, return the column element
+                result = self.array[0, args[0]]
+            elif self.array.shape[1] == 1:
+                # Otherwise, if there's only one column, return the row element
+                result = self.array[args[0], 0]
+            else:
+                # Otherwise, return the full row
+                result = self.array[args[0]]
+        elif len(args) == 2:
+            # We need to manually make a column vector out of this, since Numpy just returns a list
+            result = self.array[args[0], args[1]]
+        else:
+            raise RuntimeError(f"Too many arguments: expected 2 or lower arguments, but found {len(args)}")
+
+        # Making sure the result is a valid type
+        if Matrix(result).shape() != (1, 1):
+            return Matrix(result)
+        else:
+            # The result is a singular value and can be unpacked
+            return result
 
     def __setitem__(self, key, value):
         # TODO Add preconditions
@@ -207,6 +209,11 @@ class Matrix:
         # TODO Add preconditions
         return Matrix(self.array @ other.array)
 
+    def __truediv__(self, other):
+        # Scalar division only
+        # TODO Add MATLAB's division operator instead and move this to elementwise division
+        return Matrix(self.array / other)
+
     def __pow__(self, power, modulo=None):
         # TODO Implement checks for optimized powers, for example when multiplying with the identity matrix
         # TODO Add preconditions
@@ -237,6 +244,10 @@ class Matrix:
     def __len__(self):
         # TODO Add support for dimensions
         return len(self.vector())
+
+    def __iter__(self):
+        for value in self.vector():
+            yield value
 
     def __copy__(self):
         return Matrix(self)
@@ -305,8 +316,9 @@ class Slice:
 
 
 class Function:
-    def __init__(self, parameters, block, curried=None, infix=False):
+    def __init__(self, parameters: list[str], block, curried=None, expandable=None, infix=False):
         self.parameters = parameters
+        self.expandable = [] if expandable is None else expandable
         self.block = block
         self.curried = [] if curried is None else curried
         self.infix = infix
@@ -316,37 +328,78 @@ class Function:
             raise RuntimeError(
                 f"Too many arguments: expected {len(self.parameters)} arguments, but found {len(self.curried) + len(args)}")
 
-        for i, parameter in enumerate(self.parameters):
-            ctx.variables()[parameter] = self.curried[i] if i < len(self.curried) else args[i - len(self.curried)]
+        # We need to perform the len() operation on expandable arguments, hence why we put them in a list
+        # TODO Find a better way to do this
+        args = [[value] if i in self.expandable and not hasattr(value, "__len__") else value for i, value in enumerate(self.curried + args)]
 
-        from elements.statements import run_statements
-        run_statements(self.block, ctx)
-        returned = self.block.returned
-        self.block.clear(ctx)
+        # Checks if all the expanded parameters have the same length
+        # TODO Add support for more edge-cases, like when one expanded argument is a matrix and the other a row/column vector with the correct size
+        if self.expandable and len({len(args[i]) for i in self.expandable} - {1}) > 1:
+            raise RuntimeError("All the expanded arguments must have the same length or be a singular value")
 
-        return returned
+        result = []
+        # Loops over the expandable items
+        # Since all expanded arguments are assumed to have the same length or length 1,
+        # we can just pick the first to check the length
+        for i in range(len(args[self.expandable[0]]) if self.expandable else 1):
+            # We must separate the map to easily support the expand system for built-in functions,
+            # which need to know all the arguments
+            parameter_map = dict()
+
+            for j, parameter in enumerate(self.parameters):
+                if j in self.expandable:
+                    # TODO Support all list-types, not only matrices
+                    # Because expanded arguments can always have length 1, we need to check manually for each iteration
+                    parameter_map[parameter] = list(args[j])[i if len(args[j]) > 1 else 0]
+                else:
+                    parameter_map[parameter] = args[j]
+
+            result.append(self._get_return_value(ctx, parameter_map))
+
+        # TODO Make this prettier and support non-matrix types
+        return result[0] if len(result) == 1 else Matrix(np.array(result).reshape(args[self.expandable[0]].shape()))
 
     def arguments_needed(self):
         return len(self.parameters) - len(self.curried)
 
+    def _get_return_value(self, ctx: Context, parameters: dict[str, Any]):
+        ctx.variables().update(parameters)
+
+        from elements.statements import run_statements
+        run_statements(self.block, ctx)
+        result = self.block.returned
+        self.block.clear(ctx)
+
+        return result
+
     def __str__(self):
-        return ("infix " if self.infix else "") + f'fn({", ".join(self.parameters)})'
+        result = "infix" * self.infix + "fn("
+        for i in range(len(self.parameters)):
+            if i > 0:
+                result += ", "
+            if i in self.expandable:
+                result += "expand "
+            result += self.parameters[i]
+            if i < len(self.curried):
+                result += "=" + str(self.curried[i])
+        return result + ")"
 
     def __repr__(self):
         return self.__str__()
 
 
 class PythonFunction(Function):
-    def __init__(self, python_function, infix=False):
-        super().__init__([], None, infix=infix)
+    def __init__(self, python_function, infix=False, expandable=None):
+        super().__init__(signature(python_function).parameters.keys(), None, infix=infix, expandable=expandable)
         self.python_function = python_function
-
-    def execute(self, ctx, args):
-        return self.python_function(*args)
 
     def arguments_needed(self):
         # We don't want to enable currying for built-in Python functions!
+        # TODO Support for expanded parameters
         return 0
+
+    def _get_return_value(self, ctx: Context, parameters: dict[str, Any]):
+        return self.python_function(*parameters.values())
 
     def __str__(self):
         return f'built-in fn()'

@@ -1,3 +1,4 @@
+from elements.expressions import Expression
 from utils.parser_utils import Context
 
 
@@ -50,13 +51,13 @@ class Statement:
 
     def find_parent(self, cls):
         parent = self.parent
-        while parent is not None and type(parent) != cls:
+        while parent is not None and not isinstance(parent, cls):
             parent = parent.parent
         return parent
 
 
 class StatementWrapper(Statement):
-    def __init__(self, expression, parent=None, next=None):
+    def __init__(self, expression: Expression, parent=None, next=None):
         super().__init__(parent, next)
         self.expression = expression
 
@@ -166,7 +167,7 @@ class WhileBlock(Block):
         super().__init__(parent, next)
         self.expression = expression
 
-    def take_next(self, ctx):
+    def take_next(self, ctx: Context):
         if self.expression.evaluate(ctx):
             return self
         elif self.next is not None:
@@ -175,3 +176,36 @@ class WhileBlock(Block):
             return self.parent.take_next(ctx)
         else:
             return None
+
+
+class ForBlock(WhileBlock):
+    def __init__(self, identifier: str, expression: Expression, parent: Statement = None, next: Statement = None):
+        super().__init__(expression, parent, next)
+        self.evaluated: list | None = None
+        self.identifier = identifier
+
+    def take_next(self, ctx: Context):
+        if len(self.evaluated) > 0:
+            return self
+        elif self.next is not None:
+            return self.next
+        elif self.parent is not None:
+            return self.parent.take_next(ctx)
+        else:
+            return None
+
+    def walk(self, ctx: Context):
+        if self.evaluated is None:
+            # For now, let's only supported Matrices
+            # TODO Support any iterable type
+            self.evaluated = self.expression.evaluate(ctx).vector()
+
+        ctx.variables()[self.identifier] = self.evaluated.pop(0)
+        if len(self.children) > 0:
+            return self.children[0]
+        return self.take_next(ctx)
+
+    def clear(self, ctx: Context):
+        # Needs to be called when moving to the next statement or when breaking!
+        # TODO Remove reference to identifier in variable dictionary
+        self.evaluated = None

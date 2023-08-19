@@ -75,7 +75,7 @@ class IndentLexer:
                     self.indent_stack.pop()
                     self.token_queue.append(dedent.complete(self.lexer))
                 if t.value != self.indent_stack[-1]:
-                    # TODO Create a class for this
+                    # TODO Create an error class for this
                     raise Exception("Indentation error")
                 # Each statement must end with a newline, or multiple ones. Adding this ensures
                 # that the user does not need an empty line after a dedent.
@@ -92,6 +92,7 @@ def initiate_lexer(to_parse):
         "elif": "ELIF",
         "else": "ELSE",
         "while": "WHILE",
+        "for": "FOR",
         "continue": "CONTINUE",
         "pass": "PASS",
         "del": "DEL",
@@ -102,6 +103,7 @@ def initiate_lexer(to_parse):
         "fn": "FUN",
         "return": "RETURN",
         "infix": "INFIX",
+        "expand": "EXPAND",
         "=": "ASSIGN",
         "+=": "PLUSASSIGN",
         "++": "PLUSONE",
