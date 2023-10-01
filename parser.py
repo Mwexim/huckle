@@ -1,4 +1,6 @@
+import cmath
 import math
+import operator
 
 from ply import yacc
 
@@ -26,9 +28,9 @@ def initiate_parser(tokens):
         ("nonassoc", "IN"),
         ("left", "EQ", "NEQ", "GT", "GTE", "LT", "LTE"),
         ("left", "PLUS", "MIN"),
-        ("left", "TIMES", "DIV", "MOD"),
-        ("left", "POW"),
-        ("right", "UMINUS"),
+        ("left", "TIMES", "ELTIMES", "DIV", "MOD"),
+        ("left", "POW", "ELPOW"),
+        ("right", "UMINUS", "QUOTE"),
         # Needed for expression calling?
         ("nonassoc", "LPAREN"),
         ("nonassoc", "LBRACKET")
@@ -133,16 +135,19 @@ def initiate_parser(tokens):
     def p_function_call(p):
         """
         expression : expression LPAREN parameters RPAREN
+                   | expression DOT LPAREN parameters RPAREN
                    | expression LPAREN RPAREN
         parameters : parameter_expression
                    | parameters COMMA parameter_expression
         """
-        if len(p) >= 4 and p[2] == "(":
+        # These slice hacks are necessary because the YaccProduction class has other behavior for negative indices
+        # TODO Remove the slice hacks
+        if len(p) >= 4 and p[:][-1] == ")":
             args = []
             if p[3] != ")":
-                args.extend(p[3])
-            p[0] = FunctionCall(p[1], args)
-        elif len(p) >= 4 and p[2] == ",":
+                args.extend(p[:][-2])
+            p[0] = FunctionCall(p[1], args, spread=p[2] == ".")
+        elif len(p) == 4 and p[2] == ",":
             args = list(p[1])
             args.append(p[3])
             p[0] = args
@@ -152,9 +157,11 @@ def initiate_parser(tokens):
     def p_infix_operator(p):
         """
         expression : expression ID expression
+                   | expression ID DOT expression
         """
         p[0] = FunctionCall(VariableAccess(p[2], lambda x: x.infix, "This function is not an infix function"),
-                            [p[1], p[3]])
+                            [p[1], p[:][-1]],
+                            spread=len(p) == 5)
 
     def p_list_access(p):
         """
@@ -173,14 +180,12 @@ def initiate_parser(tokens):
         """
         expression : INFIX function_definition
                    | function_definition
-        function_definition : FUN LPAREN parameter_declaration RPAREN COLON IND block DED
-                            | FUN LPAREN RPAREN COLON IND block DED
-                            | FUN LPAREN parameter_declaration RPAREN COLON expression
-                            | FUN LPAREN RPAREN COLON expression
+        function_definition : FUN parameter_declaration COLON IND block DED
+                            | FUN COLON IND block DED
+                            | FUN parameter_declaration COLON expression
+                            | FUN COLON expression
         parameter_declaration : ID
-                              | EXPAND ID
                               | parameter_declaration COMMA ID
-                              | parameter_declaration COMMA EXPAND ID
         """
         if len(p) == 3 and p[1] == "infix":
             function = p[2]
@@ -188,36 +193,34 @@ def initiate_parser(tokens):
             p[0] = Primitive(function)
         elif len(p) == 2:
             if isinstance(p[1], str):
-                p[0] = [(p[1], False)]
+                p[0] = [p[1]]
             else:
                 p[0] = Primitive(p[1])
-        elif p[2] == "(" and p[4] == ")":
+        elif p[1] == "fn":
             return_block = ReturnBlock()
-            if len(p) == 9:
-                return_block.set_children([p[7]])
+            if len(p) == 7:
+                # Function block with arguments provided
+                return_block.set_children([p[5]])
+            elif len(p) == 5:
+                # Inline function with arguments provided
+                return_block.set_children([ReturnStatement(p[4])])
+            elif len(p) == 6:
+                # Function block with no arguments
+                return_block.set_children([p[4]])
+                p[0] = Function([], return_block)
+                return
             else:
-                return_block.set_children([ReturnStatement(p[6])])
-            p[0] = Function([value[0] for value in p[3]],
-                            return_block,
-                            expandable=[i for i in range(len(p[3])) if p[3][i][1]])
-        elif p[2] == "(" and p[3] == ")":
-            return_block = ReturnBlock()
-            if len(p) == 8:
-                return_block.set_children([p[6]])
-            else:
-                return_block.set_children([ReturnStatement(p[5])])
-            p[0] = Function([], return_block)
+                # Inline function with no arguments
+                assert len(p) == 4
+                return_block.set_children([ReturnStatement(p[3])])
+                p[0] = Function([], return_block)
+                return
+
+            p[0] = Function(p[2], return_block)
         elif p[2] == ",":
-            if p[3] == "expand":
-                parameter_declaration = list(p[1])
-                parameter_declaration.append((p[4], True))
-                p[0] = parameter_declaration
-            else:
-                parameter_declaration = list(p[1])
-                parameter_declaration.append((p[3], False))
-                p[0] = parameter_declaration
-        elif len(p) == 3 and p[1] == "expand":
-            p[0] = [(p[2], True)]
+            parameter_declaration = list(p[1])
+            parameter_declaration.append(p[3])
+            p[0] = parameter_declaration
 
     def p_matrix(p):
         """
@@ -261,24 +264,36 @@ def initiate_parser(tokens):
     def p_unary_operators(p):
         """
         expression : MIN expression %prec UMINUS
-        expression : NOT expression
+                   | NOT expression
+                   | expression QUOTE
         """
-        p[0] = UnaryOperator(p[1], p[2])
+        if p[2] == "'":
+            p[0] = UnaryOperator(p[2], p[1])
+        else:
+            p[0] = UnaryOperator(p[1], p[2])
 
     def p_binary_operators(p):
         """
         expression : expression PLUS expression
                    | expression MIN expression
                    | expression TIMES expression
+                   | expression ELTIMES expression
                    | expression DIV expression
                    | expression MOD expression
                    | expression POW expression
+                   | expression ELPOW expression
                    | expression AND expression
                    | expression OR expression
                    | expression IF expression
                    | expression IN expression
         """
         p[0] = BinaryOperator(p[1], p[2], p[3], p[2] not in ("%", "if", "in"))
+
+    def p_id_and_coefficient(p):
+        """
+        expression : ID_AND_COEFF
+        """
+        p[0] = BinaryOperator(Primitive(p[1][0]), "*", VariableAccess(p[1][1]))
 
     def p_comparison(p):
         """
@@ -332,6 +347,7 @@ def initiate_parser(tokens):
     def p_primitives(p):
         """
         expression : NUMBER
+                   | COMPLEX
                    | BOOLEAN
                    | STRING
                    | NONE
@@ -353,10 +369,16 @@ def initiate_context():
     ctx.variable_states[-1] = {
         # Python functions, later on these will be built-in
         "len": PythonFunction(len),
-        "slice": PythonFunction(slice.__new__),
-        "str": PythonFunction(str.__new__),
+        "slice": PythonFunction(Slice),
+        "str": PythonFunction(str),
 
         # Built-in functions
+        "print": ContextFunction(pretty_print),
+
+        # Logic functions
+        "eq": PythonFunction(operator.eq, infix=True),
+
+        # Matrix functions
         "cross": PythonFunction(cross, infix=True),
         "det": PythonFunction(determinant),
         "diagonal": PythonFunction(diagonal),
@@ -366,22 +388,41 @@ def initiate_context():
         "max": PythonFunction(maximum),
         "min": PythonFunction(minimum),
         "norm": PythonFunction(norm),
-        "print": ContextFunction(pretty_print),
+        "ones": PythonFunction(ones),
         "rank": PythonFunction(rank),
         "reshape": PythonFunction(reshape, infix=True),
-        "tr": PythonFunction(trace),
+        "trace": PythonFunction(trace),
         "transpose": PythonFunction(transpose),
+        "zeros": PythonFunction(zeros),
+
+        # Imaginary number functions
+        "conj": PythonFunction(Complex.conjugate),
+        "imag": PythonFunction(imag),
+        "phase": PythonFunction(cmath.phase),
+        "polar": PythonFunction(polar),
+        "real": PythonFunction(real),
 
         # Basic math functions
-        "acos": PythonFunction(math.acos, expandable=[0]),
-        "asin": PythonFunction(math.asin, expandable=[0]),
-        "atan": PythonFunction(math.atan, expandable=[0]),
-        "cos": PythonFunction(math.cos, expandable=[0]),
-        "sin": PythonFunction(math.sin, expandable=[0]),
-        "tan": PythonFunction(math.tan, expandable=[0]),
+        "abs": PythonFunction(abs),
+        "acos": PythonFunction(math.acos),
+        "acosh": PythonFunction(math.acosh),
+        "asin": PythonFunction(math.asin),
+        "asinh": PythonFunction(math.asinh),
+        "atan": PythonFunction(math.atan),
+        "atanh": PythonFunction(math.atanh),
+        "cos": PythonFunction(math.cos),
+        "cosh": PythonFunction(math.cosh),
+        "exp": PythonFunction(math.exp),
+        "log": PythonFunction(math.log),
+        "sin": PythonFunction(math.sin),
+        "sinh": PythonFunction(math.sinh),
+        "sqrt": PythonFunction(sqrt),
+        "tan": PythonFunction(math.tan),
+        "tanh": PythonFunction(math.tanh),
 
         # Built-in variables
         "e": math.e,
+        "i": Complex(0, 1),
         "pi": math.pi,
         "pretty_print": True
     }

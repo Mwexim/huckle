@@ -1,5 +1,7 @@
 from copy import copy
 from enum import Enum
+
+from utils.builtins import transpose
 from utils.parser_utils import Context
 from utils.primitives import Function, Matrix, Slice
 
@@ -91,6 +93,8 @@ class UnaryOperator(Expression):
                 return -expression
             case "not":
                 return not expression
+            case "'":
+                return transpose(expression)
 
 
 class BinaryOperator(Expression):
@@ -103,15 +107,16 @@ class BinaryOperator(Expression):
     def evaluate(self, ctx: Context):
         left = self.left.evaluate(ctx)
         right = self.right.evaluate(ctx)
-        try:
-            result = self.calculate(left, self.operator, right)
-            return result
-        except:
-            # Sometimes, we only want to define operations on one type.
-            # An example is the matrix multiplication with a scalar.
-            if self.commutative:
-                result = self.calculate(right, self.operator, left)
-                return result
+        # TODO Add commutativity for non-python operators
+        # TODO Don't use Python operators anymore and make registering them easier
+        result = self.calculate(left, self.operator, right)
+        return result
+        # except:
+        #     # Sometimes, we only want to define operations on one type.
+        #     # An example is the matrix multiplication with a scalar.
+        #     if self.commutative:
+        #         result = self.calculate(right, self.operator, left)
+        #         return result
 
     @staticmethod
     def calculate(left, operator, right):
@@ -122,12 +127,16 @@ class BinaryOperator(Expression):
                 return left - right
             case "*":
                 return left * right
+            case ".*":
+                return left.__elmul__(right)
             case "/":
                 return left / right
             case "%":
                 return left % right
             case "^":
                 return left ** right
+            case ".^":
+                return left.__elpow__(right)
             case "and":
                 return left and right
             case "or":
@@ -188,9 +197,10 @@ class ComparisonOperator(BinaryOperator):
 
 
 class FunctionCall(Expression):
-    def __init__(self, expression: Expression, arguments: list[Expression]):
+    def __init__(self, expression: Expression, arguments: list[Expression], spread=False):
         self.expression = expression
         self.arguments = arguments
+        self.spread = spread
 
     def evaluate(self, ctx: Context):
         func = self.expression.evaluate(ctx)
@@ -199,9 +209,9 @@ class FunctionCall(Expression):
             # but with the curried arguments.
             curried = list(func.curried)
             curried.extend([expr.evaluate(ctx) for expr in self.arguments])
-            return Function(func.parameters, func.block, curried=curried, expandable=func.expandable)
+            return Function(func.parameters, func.block, curried=curried)
         else:
-            return func.execute(ctx, [expr.evaluate(ctx) for expr in self.arguments])
+            return func.execute(ctx, [expr.evaluate(ctx) for expr in self.arguments], spread=self.spread)
 
 
 class ListAccess(Expression):
@@ -270,8 +280,6 @@ class VariableChange(Expression):
         self.change_to = change_to
 
     def evaluate(self, ctx: Context):
-        # if self.changing not in ctx.variables():
-        #     ctx.variables()[self.changing] = 0
         return self.changing.change(ctx,
                                     ChangeMode(self.operator),
                                     copy(self.change_to.evaluate(ctx)) if self.change_to is not None else None)

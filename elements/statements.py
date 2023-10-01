@@ -1,4 +1,7 @@
+from typing import Optional
+
 from elements.expressions import Expression
+from utils.builtins import pretty_print
 from utils.parser_utils import Context
 
 
@@ -27,9 +30,9 @@ def run_statements(start, ctx, predicate=lambda x: x is not None, debug=False):
 
 
 class Statement:
-    def __init__(self, parent=None, next=None):
-        self.parent = parent
-        self.next = next
+    def __init__(self):
+        self.parent: Optional['Statement'] = None
+        self.next: Optional['Statement'] = None
 
     def take_next(self, ctx: Context):
         if self.next is not None:
@@ -49,7 +52,7 @@ class Statement:
     def clear(self, ctx: Context):
         pass
 
-    def find_parent(self, cls):
+    def find_parent(self, cls: type):
         parent = self.parent
         while parent is not None and not isinstance(parent, cls):
             parent = parent.parent
@@ -57,8 +60,8 @@ class Statement:
 
 
 class StatementWrapper(Statement):
-    def __init__(self, expression: Expression, parent=None, next=None):
-        super().__init__(parent, next)
+    def __init__(self, expression: Expression):
+        super().__init__()
         self.expression = expression
 
     def run(self, ctx: Context):
@@ -68,9 +71,8 @@ class StatementWrapper(Statement):
 # The way this is implemented makes it a statement and not a block.
 # It doesn't need the children functionality.
 class ConditionalStatement(Statement):
-    def __init__(self, if_expression, if_block, parent=None, next=None):
-        super().__init__(parent, next)
-
+    def __init__(self, if_expression, if_block):
+        super().__init__()
         self.if_expression = if_expression
         self.if_block = if_block
         self.if_block.parent = self
@@ -102,16 +104,13 @@ class ConditionalStatement(Statement):
 
 
 class PassStatement(Statement):
-    def __init__(self, parent=None, next=None):
-        super().__init__(parent, next)
-
     def run(self, ctx: Context):
         pass
 
 
 class ReturnStatement(Statement):
-    def __init__(self, expression, parent=None, next=None):
-        super().__init__(parent, next)
+    def __init__(self, expression):
+        super().__init__()
         self.expression = expression
 
     def walk(self, ctx: Context):
@@ -121,9 +120,6 @@ class ReturnStatement(Statement):
 
 
 class ContinueStatement(Statement):
-    def __init__(self, parent=None, next=None):
-        super().__init__(parent, next)
-
     def walk(self, ctx: Context):
         block = self.find_parent(WhileBlock)
         # We need to manually take the next item, since the while-condition is checked in there.
@@ -131,8 +127,8 @@ class ContinueStatement(Statement):
 
 
 class Block(Statement):
-    def __init__(self, parent=None, next=None):
-        super().__init__(parent, next)
+    def __init__(self):
+        super().__init__()
         self.children = []
 
     def set_children(self, children):
@@ -146,8 +142,8 @@ class Block(Statement):
 
 
 class ReturnBlock(Block):
-    def __init__(self, parent=None, next=None):
-        super().__init__(parent, next)
+    def __init__(self):
+        super().__init__()
         self.returned = None
 
     def walk(self, ctx: Context):
@@ -163,8 +159,8 @@ class ReturnBlock(Block):
 
 
 class WhileBlock(Block):
-    def __init__(self, expression, parent=None, next=None):
-        super().__init__(parent, next)
+    def __init__(self, expression):
+        super().__init__()
         self.expression = expression
 
     def take_next(self, ctx: Context):
@@ -179,8 +175,8 @@ class WhileBlock(Block):
 
 
 class ForBlock(WhileBlock):
-    def __init__(self, identifier: str, expression: Expression, parent: Statement = None, next: Statement = None):
-        super().__init__(expression, parent, next)
+    def __init__(self, identifier: str, expression: Expression):
+        super().__init__(expression)
         self.evaluated: list | None = None
         self.identifier = identifier
 

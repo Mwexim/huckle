@@ -1,0 +1,52 @@
+# Functions act like expressions, but require an indented section to operate
+square = fn x:
+	return x^2
+
+# Call functions with parentheses
+print(square(10))
+
+# You can use inline returns for simple functions
+cube = fn x: x^3
+
+print(cube(4))
+
+# By providing less arguments than the defined function, you can add curried functions.
+multiplier = fn x, y: x * y
+
+times_nine = multiplier(9)
+
+print(times_nine)
+
+# The '9' argument is automatically supplied to the function, so only one argument left
+print(times_nine(5), 9 * 5)
+
+# Calling a matrices calls all the elements and stores their result into a new matrix
+matrix = [square, cube; multiplier(10), multiplier(-2)]
+
+print(matrix(5))
+
+# Let's make an inverse function and observe it's behavior
+inverse = fn x: x^-1
+
+# This will calculate the matrix inverse
+print(inverse([4, -2; 10, 5]))
+
+# You'd think it would take the inverse of the matrix, but because the argument is spread,
+# the function is applied to each separate element instead, returning a matrix containing
+# the inverse of each element
+# Put a dot before the parentheses to spread the arguments
+print(inverse.([4, -2; 10, 5]))
+
+# Infix functions also can have the spread operator
+# 'eq' is the function equivalent of the '==' operator
+print([1:4; 2, 2, 2] eq [1, 1, 1; 2, 3, 2])
+print([1:4; 2, 2, 2] eq. [1, 1, 1; 2, 3, 2])
+
+# Math functions can easily be created and the multiplication operator can be omitted for
+# variables with an identifier length of 1
+f = fn x, y: 4x + 3y - 7
+
+print(f(3, 4))
+
+# Here, the x value iterates over the elements of the list, while the y value stays 3
+print(f.([1:10], 3))

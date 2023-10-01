@@ -2,6 +2,8 @@ from collections import deque
 from ply import lex
 from ply.lex import Lexer, LexToken
 
+from utils.primitives import Complex
+
 
 class IndentationToken(LexToken):
     def __init__(self, type):
@@ -64,6 +66,9 @@ class IndentLexer:
                     self.token_queue.append(dedent.complete(self.lexer))
                 self.indent_stack = [0]
         elif t.type == "NL":
+            # TODO Fix line numbering
+            self.lexer.lineno += 1
+
             # The NL token includes the amount of leading whitespace.
             # Fabricate indent or dedents as/if necessary and queue them.
             if t.value > self.indent_stack[-1]:
@@ -103,7 +108,7 @@ def initiate_lexer(to_parse):
         "fn": "FUN",
         "return": "RETURN",
         "infix": "INFIX",
-        "expand": "EXPAND",
+        # "expand": "EXPAND",
         "=": "ASSIGN",
         "+=": "PLUSASSIGN",
         "++": "PLUSONE",
@@ -112,9 +117,12 @@ def initiate_lexer(to_parse):
         "+": "PLUS",
         "-": "MIN",
         "*": "TIMES",
+        ".*": "ELTIMES",
         "/": "DIV",
         "%": "MOD",
         "^": "POW",
+        ".^": "ELPOW",
+        "'": "QUOTE",
         "==": "EQ",
         "!=": "NEQ",
         "<": "LT",
@@ -127,9 +135,10 @@ def initiate_lexer(to_parse):
         "]": "RBRACKET",
         ",": "COMMA",
         ";": "SEMICOLON",
-        ":": "COLON"
+        ":": "COLON",
+        ".": "DOT"
     }
-    tokens = ["BOOLEAN", "STRING", "NUMBER", "NONE", "ID", "NL", "IND", "DED"] + list(keywords.values())
+    tokens = ["BOOLEAN", "STRING", "NUMBER", "COMPLEX", "NONE", "ID", "ID_AND_COEFF", "NL", "IND", "DED"] + list(keywords.values())
 
     # Tokenizers for the other tokens
     def t_NONE(t):
@@ -147,6 +156,18 @@ def initiate_lexer(to_parse):
         t.value = t.value[1:-1]
         return t
 
+    def t_COMPLEX(t):
+        r"\d+(\.\d*)?[A-Za-z]"
+        if t.value[-1] == "i":
+            if "." in t.value:
+                t.value = Complex(0, float(t.value[:-1]))
+            else:
+                t.value = Complex(0, int(t.value[:-1]))
+        else:
+            t.type = "ID_AND_COEFF"
+            t.value = ((float if "." in t.value else int)(t.value[:-1]), t.value[-1])
+        return t
+
     def t_NUMBER(t):
         r"\d+(\.\d*)?"
         if "." in t.value:
@@ -156,7 +177,8 @@ def initiate_lexer(to_parse):
         return t
 
     def t_ID(t):
-        r"[a-zA-Z_][a-zA-Z_0-9]*\'?"
+        # Add \'? to allow var' as a valid name, currently clashes with the transpose operator
+        r"[a-zA-Z_][a-zA-Z_0-9]*"
         # Check for reserved keywords
         t.type = keywords.get(t.value, "ID")
         return t

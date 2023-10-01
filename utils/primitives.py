@@ -1,8 +1,9 @@
 import numbers
-from inspect import signature
-from typing import Literal, Sized, Any
+from typing import Literal, Any
 
 import numpy as np
+
+from utils.decorators import encapsulate_parent
 from utils.parser_utils import Context
 
 
@@ -35,7 +36,8 @@ class Matrix:
                 # Matrix is a list, but not 2-dimensional
                 self.array = np.array([matrix])
             else:
-                self.array = np.array(matrix)
+                data_type = type(matrix[0][0]) if matrix and matrix[0] else None
+                self.array = np.array(matrix, dtype=data_type)
         elif isinstance(matrix, np.ndarray):
             if len(matrix.shape) != 2:
                 # Matrix is Numpy array, but not 2-dimensional
@@ -45,12 +47,12 @@ class Matrix:
                 self.array = matrix.copy()
         else:
             # Matrix is a single value
-            self.array = np.array([[matrix]])
+            self.array = np.array([[matrix]], dtype=type(matrix))
 
-    def execute(self, ctx, args):
+    def execute(self, ctx, args, spread=False):
         # TODO Add preconditions
         # TODO Make this prettier
-        return Matrix(np.array(list(map(lambda x: x.execute(ctx, args), self.vector()))).reshape(self.shape()))
+        return Matrix(np.array(list(map(lambda x: x.execute(ctx, args, spread=spread), self.vector()))).reshape(self.shape()))
 
     def arguments_needed(self):
         return 0
@@ -100,7 +102,8 @@ class Matrix:
             self.array = Matrix(other).array
             return
 
-        self.array = (np.vstack if dimension == 0 else np.hstack)([self.array, np.matrix(other)])
+        data_type = type(other[0][0]) if other and other[0] else None
+        self.array = (np.vstack if dimension == 0 else np.hstack)([self.array, np.array(other, dtype=data_type)], dtype=self.array.dtype)
 
     def __delitem__(self, key):
         # TODO Add preconditions
@@ -209,32 +212,29 @@ class Matrix:
         # TODO Add preconditions
         return Matrix(self.array @ other.array)
 
+    def __rmul__(self, other):
+        # Scalar multiplication
+        if isinstance(other, numbers.Number):
+            return self * other
+
+        # TODO Add preconditions, normally we shouldn't be here
+
+    def __elmul__(self, other):
+        # Elementwise matrix multiplication only
+        # TODO Add preconditions
+        return Matrix(np.multiply(self.array, other.array))
+
     def __truediv__(self, other):
         # Scalar division only
         # TODO Add MATLAB's division operator instead and move this to elementwise division
         return Matrix(self.array / other)
 
     def __pow__(self, power, modulo=None):
-        # TODO Implement checks for optimized powers, for example when multiplying with the identity matrix
         # TODO Add preconditions
-        if int(power) != power:
-            raise RuntimeError("The exponent of a matrix should be a whole number")
+        return Matrix(np.linalg.matrix_power(self.array, power))
 
-        if power == 1:
-            return Matrix(self)
-        elif power > 0:
-            original = self.array.copy()
-        elif power == 0:
-            return Matrix(np.identity(self.array.shape[0], dtype=int))
-        else:
-            original = np.linalg.inv(self.array)
-            power *= -1
-
-        result = original.copy()
-        while power > 1:
-            result @= original
-            power -= 1
-        return Matrix(result.round(6))
+    def __elpow__(self, other):
+        return Matrix(np.power(self.array, other.array))
 
     def __contains__(self, item):
         # TODO Add preconditions
@@ -291,11 +291,13 @@ class Slice:
         return self.slice().indices(length)
 
     def __add__(self, other):
+        # TODO Add preconditions
         return Slice(self.start + other if self.start is not None else None,
                      self.stop + other if self.stop is not None else None,
                      self.step)
 
     def __sub__(self, other):
+        # TODO Add preconditions
         return Slice(self.start - other if self.start is not None else None,
                      self.stop - other if self.stop is not None else None,
                      self.step)
@@ -315,54 +317,97 @@ class Slice:
         return self.__str__()
 
 
+@encapsulate_parent(["conjugate"])
+class Complex(complex):
+    def __str__(self):
+        # Only shows the real and imaginary part if non-zero
+        result = str(self.real) * (self.real != 0)
+        if self.imag == 1:
+            result += " + " * (self.real != 0)
+            result += "i"
+        elif self.imag == -1:
+            result += " - " * (self.real != 0)
+            result += "i"
+        elif self.imag > 0:
+            result += " + " * (self.real != 0)
+            result += f"{self.imag}i"
+        elif self.imag < 0:
+            result += " - " * (self.real != 0)
+            result += f"{-self.imag}i"
+        return result if result else "0.0 + 0.0i"
+
+    def __repr__(self):
+        return self.__str__()
+
+
 class Function:
-    def __init__(self, parameters: list[str], block, curried=None, expandable=None, infix=False):
+    def __init__(self, parameters: list[str] | None, block, curried=None, infix=False):
         self.parameters = parameters
-        self.expandable = [] if expandable is None else expandable
+        """
+        The parameters of this function, or None if the amount of parameters does not matter,
+        which is the case for built-in Python functions.
+        """
         self.block = block
         self.curried = [] if curried is None else curried
         self.infix = infix
 
-    def execute(self, ctx: Context, args):
-        if len(self.parameters) < len(self.curried) + len(args):
+    def execute(self, ctx: Context, args, spread=False):
+        if self.parameters is not None and len(self.parameters) < len(self.curried) + len(args):
             raise RuntimeError(
                 f"Too many arguments: expected {len(self.parameters)} arguments, but found {len(self.curried) + len(args)}")
 
-        # We need to perform the len() operation on expandable arguments, hence why we put them in a list
+        # We need to perform the len() operation on all arguments if they are spread, hence why we put them in a list
         # TODO Find a better way to do this
-        args = [[value] if i in self.expandable and not hasattr(value, "__len__") else value for i, value in enumerate(self.curried + args)]
+        args = [[value] if spread and not hasattr(value, "__len__") else value for value in self.curried + args]
+
+        # Stores the shape of the first matrix that was found in the arguments
+        # This is needed when spreading functions
+        matrices = list(filter(lambda x: isinstance(x, Matrix), self.curried + args))
+        if matrices:
+            result_shape = matrices[0].shape()
 
         # Checks if all the expanded parameters have the same length
-        # TODO Add support for more edge-cases, like when one expanded argument is a matrix and the other a row/column vector with the correct size
-        if self.expandable and len({len(args[i]) for i in self.expandable} - {1}) > 1:
-            raise RuntimeError("All the expanded arguments must have the same length or be a singular value")
+        # TODO Add support for more edge-cases, like when one expanded argument is a matrix
+        #  and the other a row/column vector with the correct size
+        if spread and len({len(value) for value in args} - {1}) > 1:
+            raise RuntimeError("All the arguments must have the same length or be a singular value")
 
         result = []
-        # Loops over the expandable items
-        # Since all expanded arguments are assumed to have the same length or length 1,
-        # we can just pick the first to check the length
-        for i in range(len(args[self.expandable[0]]) if self.expandable else 1):
-            # We must separate the map to easily support the expand system for built-in functions,
-            # which need to know all the arguments
-            parameter_map = dict()
 
-            for j, parameter in enumerate(self.parameters):
-                if j in self.expandable:
+        if spread:
+            # Loops over the elements of each separate argument
+            # Since all arguments are assumed to have the same length or length 1,
+            # we can just pick the first to check the length
+            for i in range(len(args[0])):
+                # We must separate the map to easily support the spread system for built-in functions,
+                # which need to know all the arguments
+                parameter_map = dict()
+
+                # If the parameters field is None, it means that their names don't matter in the execution,
+                # which is the case for the built-in Python functions. That's why we just pick a list
+                # with ascending number entries with the desired length.
+                # TODO Make a better system for this, or rewrite the whole function system altogether
+                for j, parameter in enumerate(self.parameters if self.parameters is not None else list(range(len(args)))):
                     # TODO Support all list-types, not only matrices
-                    # Because expanded arguments can always have length 1, we need to check manually for each iteration
+                    # Because spread arguments can always have length 1, we need to check manually for each iteration
                     parameter_map[parameter] = list(args[j])[i if len(args[j]) > 1 else 0]
-                else:
-                    parameter_map[parameter] = args[j]
 
-            result.append(self._get_return_value(ctx, parameter_map))
+                result.append(self._get_return_value(ctx, parameter_map))
+        else:
+            parameters = self.parameters if self.parameters is not None else list(range(len(args)))
+            result.append(self._get_return_value(ctx, {key: value for key, value in zip(parameters, args)}))
 
         # TODO Make this prettier and support non-matrix types
-        return result[0] if len(result) == 1 else Matrix(np.array(result).reshape(args[self.expandable[0]].shape()))
+        # TODO Make the data type solutions less hacky...
+        # We need to take over the data type as well
+        data_type = type(result[0])
+        return result[0] if len(result) == 1 else Matrix(np.array(result, dtype=data_type).reshape(result_shape))
 
     def arguments_needed(self):
         return len(self.parameters) - len(self.curried)
 
     def _get_return_value(self, ctx: Context, parameters: dict[str, Any]):
+        # TODO Remove variables afterwards
         ctx.variables().update(parameters)
 
         from elements.statements import run_statements
@@ -377,8 +422,6 @@ class Function:
         for i in range(len(self.parameters)):
             if i > 0:
                 result += ", "
-            if i in self.expandable:
-                result += "expand "
             result += self.parameters[i]
             if i < len(self.curried):
                 result += "=" + str(self.curried[i])
@@ -389,13 +432,12 @@ class Function:
 
 
 class PythonFunction(Function):
-    def __init__(self, python_function, infix=False, expandable=None):
-        super().__init__(signature(python_function).parameters.keys(), None, infix=infix, expandable=expandable)
+    def __init__(self, python_function, infix=False):
+        super().__init__(None, None, infix=infix)
         self.python_function = python_function
 
     def arguments_needed(self):
         # We don't want to enable currying for built-in Python functions!
-        # TODO Support for expanded parameters
         return 0
 
     def _get_return_value(self, ctx: Context, parameters: dict[str, Any]):
@@ -410,7 +452,7 @@ class ContextFunction(Function):
         super().__init__([], None)
         self.context_function = context_function
 
-    def execute(self, ctx, args):
+    def execute(self, ctx, args, spread=False):
         return self.context_function(ctx, args)
 
     def arguments_needed(self):

@@ -25,9 +25,15 @@ print(10 * [A; B] * 10)
 print(A * B)
 print(A * [2; 5])
 
+# Element-wise multiplication
+print(A .* B)
+
 # And powers of matrices!
 print(A * A * A)
 print(A ^ 3)
+
+# Element-wise powers
+print(A .^ [2, 2; 3, 2])
 
 # The identity matrix with custom size
 print(eye(2))
@@ -37,8 +43,12 @@ print(A ^ 0)
 F = diagonal([1, 2, 3, 4, 5])
 print(F ^ 4)
 
+# The transpose of a matrix
+print(transpose(F))
+print(F')
+
 # Trace of a matrix
-print(tr(E))
+print(trace(E))
 
 # Inverse of a matrix
 G = inv(B)

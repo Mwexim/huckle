@@ -1,0 +1,34 @@
+# Append 'i' behind a number to make it a complex number
+a = 5 + 3i
+
+# Fetch the real and imaginary part
+print(a)
+print(real(a))
+print(imag(a))
+
+# Take the conjugate
+print(conj(a))
+
+# Calculate the polar coordinates
+print(abs(a))
+print(sqrt(real(a) ^ 2 + imag(a) ^ 2))
+
+print(phase(a))
+print(atan(imag(a) / real(a)))
+
+# Get the imaginary number from polar coordinates
+print(polar(abs(a), phase(a)))
+
+# Simple arithmetic
+print(a ^ 3)
+print(a * a * a)
+
+# Almost all the complex number functions are expandable
+A = [a, a * (5 + 3i); 6 - 3i, -1 - i]
+
+print(A)
+print(real(A))
+print(conj(A))
+
+# Square root of negative numbers result in complex numbers
+print(sqrt(-3))
